@@ -15,6 +15,14 @@ import "encoding/binary"
 // context.
 type FieldElement [10]int32
 
+var FeMa = FieldElement{-486662, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var FeMa2 = FieldElement{-12721188, -3529, 0, 0, 0, 0, 0, 0, 0, 0}                                    /* -A^2 */
+var FeFffb1 = FieldElement{-31702527, -2466483, -26106795, -12203692, -12169197, -321052, 14850977, -10296299, -16929438, -407568} /* sqrt(-2 * A * (A + 2)) */
+var FeFffb2 = FieldElement{8166131, -6741800, -17040804, 3154616, 21461005, 1466302, -30876704, -6368709, 10503587, -13363080}     /* sqrt(2 * A * (A + 2)) */
+var FeFffb3 = FieldElement{-13620103, 14639558, 4532995, 7679154, 16815101, -15883539, -22863840, -14813421, 13716513, -6477756}   /* sqrt(-sqrt(-1) * A * (A + 2)) */
+var FeFffb4 = FieldElement{-21786234, -12173074, 21573800, 4524538, -4645904, 16204591, 8012863, -8444712, 3212926, 6885324}       /* sqrt(sqrt(-1) * A * (A + 2)) */
+var FeSqrtM1 = FieldElement{-32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482}       /* sqrt(-1) */
+
 var zero FieldElement
 
 func FeZero(fe *FieldElement) {
@@ -620,6 +628,22 @@ func fePow22523(out, z *FieldElement) {
 	FeMul(out, &t0, z)
 }
 
+
+func FeDivPowM1(out, u, v *FieldElement) {
+	var v3, uv7, t0 FieldElement
+
+	FeSquare(&v3, v)
+	FeMul(&v3, &v3, v) /* v3 = v^3 */
+	FeSquare(&uv7, &v3)
+	FeMul(&uv7, &uv7, v)
+	FeMul(&uv7, &uv7, u) /* uv7 = uv^7 */
+
+	fePow22523(&t0, &uv7)
+	/* t0 = (uv^7)^((q-5)/8) */
+	FeMul(&t0, &t0, &v3)
+	FeMul(out, &t0, u) /* u^(m+1)v^(-(m+1)) */
+}
+
 // Group elements are members of the elliptic curve -x^2 + y^2 = 1 + d * x^2 *
 // y^2 where d = -121665/121666.
 //
@@ -677,6 +701,110 @@ func (p *ProjectiveGroupElement) ToBytes(s *[32]byte) {
 	FeMul(&y, &p.Y, &recip)
 	FeToBytes(s, &y)
 	s[31] ^= FeIsNegative(&x) << 7
+}
+
+func (p *ProjectiveGroupElement) FromBytes(s *[32]byte) {
+	h0 := load4(s[:])
+	h1 := load3(s[4:]) << 6
+	h2 := load3(s[7:]) << 5
+	h3 := load3(s[10:]) << 3
+	h4 := load3(s[13:]) << 2
+	h5 := load4(s[16:])
+	h6 := load3(s[20:]) << 7
+	h7 := load3(s[23:]) << 5
+	h8 := load3(s[26:]) << 4
+	h9 := load3(s[29:]) << 2
+	var carry [10]int64
+	carry[9] = (h9 + int64(1<<24)) >> 25
+	h0 += carry[9] * 19
+	h9 -= carry[9] << 25
+	carry[1] = (h1 + int64(1<<24)) >> 25
+	h2 += carry[1]
+	h1 -= carry[1] << 25
+	carry[3] = (h3 + int64(1<<24)) >> 25
+	h4 += carry[3]
+	h3 -= carry[3] << 25
+	carry[5] = (h5 + int64(1<<24)) >> 25
+	h6 += carry[5]
+	h5 -= carry[5] << 25
+	carry[7] = (h7 + int64(1<<24)) >> 25
+	h8 += carry[7]
+	h7 -= carry[7] << 25
+
+	carry[0] = (h0 + int64(1<<25)) >> 26
+	h1 += carry[0]
+	h0 -= carry[0] << 26
+	carry[2] = (h2 + int64(1<<25)) >> 26
+	h3 += carry[2]
+	h2 -= carry[2] << 26
+	carry[4] = (h4 + int64(1<<25)) >> 26
+	h5 += carry[4]
+	h4 -= carry[4] << 26
+	carry[6] = (h6 + int64(1<<25)) >> 26
+	h7 += carry[6]
+	h6 -= carry[6] << 26
+	carry[8] = (h8 + int64(1<<25)) >> 26
+	h9 += carry[8]
+	h8 -= carry[8] << 26
+
+	var u, v, w, x, y, z FieldElement
+	u[0] = int32(h0)
+	u[1] = int32(h1)
+	u[2] = int32(h2)
+	u[3] = int32(h3)
+	u[4] = int32(h4)
+	u[5] = int32(h5)
+	u[6] = int32(h6)
+	u[7] = int32(h7)
+	u[8] = int32(h8)
+	u[9] = int32(h9)
+	FeSquare2(&v, &u) /* 2 * u^2 */
+	// w.One()
+	FeOne(&w)
+	FeAdd(&w, &v, &w)        /* w = 2 * u^2 + 1 */
+	FeSquare(&x, &w)         /* w^2 */
+	FeMul(&y, &FeMa2, &v)    /* -2 * A^2 * u^2 */
+	FeAdd(&x, &x, &y)        /* x = w^2 - 2 * A^2 * u^2 */
+	FeDivPowM1(&p.X, &w, &x) /* (w / x)^(m + 1) */
+	FeSquare(&y, &p.X)
+	FeMul(&x, &y, &x)
+	FeSub(&y, &w, &x)
+	FeCopy(&z, &FeMa)
+	isNegative := false
+	var sign byte
+	if FeIsNonZero(&y) != 0 {
+		FeAdd(&y, &w, &x)
+		if FeIsNonZero(&y) != 0 {
+			isNegative = true
+		} else {
+			FeMul(&p.X, &p.X, &FeFffb1)
+		}
+	} else {
+		FeMul(&p.X, &p.X, &FeFffb2)
+	}
+	if isNegative {
+		FeMul(&x, &x, &FeSqrtM1)
+		FeSub(&y, &w, &x)
+		if FeIsNonZero(&y) != 0 {
+			FeAdd(&y, &w, &x)
+			FeMul(&p.X, &p.X, &FeFffb3)
+		} else {
+			FeMul(&p.X, &p.X, &FeFffb4)
+		}
+		/* p.X = sqrt(A * (A + 2) * w / x) */
+		/* z = -A */
+		sign = 1
+	} else {
+		FeMul(&p.X, &p.X, &u) /* u * sqrt(2 * A * (A + 2) * w / x) */
+		FeMul(&z, &z, &v)     /* -2 * A * u^2 */
+		sign = 0
+	}
+	if FeIsNegative(&p.X) != sign {
+		FeNeg(&p.X, &p.X)
+	}
+	FeAdd(&p.Z, &z, &w)
+	FeSub(&p.Y, &z, &w)
+	FeMul(&p.X, &p.X, &p.Z)
 }
 
 func (p *ExtendedGroupElement) Zero() {
