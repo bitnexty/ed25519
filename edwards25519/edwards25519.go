@@ -949,6 +949,10 @@ func geAdd(r *CompletedGroupElement, p *ExtendedGroupElement, q *CachedGroupElem
 	FeSub(&r.T, &t0, &r.T)
 }
 
+func GeAdd(r *CompletedGroupElement, p *ExtendedGroupElement, q *CachedGroupElement) {
+	geAdd(r, p, q)
+}
+
 func geSub(r *CompletedGroupElement, p *ExtendedGroupElement, q *CachedGroupElement) {
 	var t0 FieldElement
 
@@ -963,6 +967,10 @@ func geSub(r *CompletedGroupElement, p *ExtendedGroupElement, q *CachedGroupElem
 	FeAdd(&r.Y, &r.Z, &r.Y)
 	FeSub(&r.Z, &t0, &r.T)
 	FeAdd(&r.T, &t0, &r.T)
+}
+
+func GeSub(r *CompletedGroupElement, p *ExtendedGroupElement, q *CachedGroupElement) {
+	geSub(r, p, q)
 }
 
 func geMixedAdd(r *CompletedGroupElement, p *ExtendedGroupElement, q *PreComputedGroupElement) {
@@ -2063,7 +2071,7 @@ func ScMulAdd(s, a, b, c *[32]byte) {
 // Output:
 //   s[0]+256*s[1]+...+256^31*s[31] = (c-ab) mod l
 //   where l = 2^252 + 27742317777372353535851937790883648493.
-func ScMulSub(s, a, b, c *Key) {
+func ScMulSub(s, a, b, c *[32]byte) {
 	a0 := 2097151 & load3(a[:])
 	a1 := 2097151 & (load4(a[2:]) >> 5)
 	a2 := 2097151 & (load3(a[5:]) >> 2)
@@ -2810,6 +2818,30 @@ func ScReduce(out *[32]byte, s *[64]byte) {
 	out[29] = byte(s11 >> 1)
 	out[30] = byte(s11 >> 9)
 	out[31] = byte(s11 >> 17)
+}
+
+func signum(a int64) int64 {
+	return (a >> 63) - ((-a) >> 63)
+}
+
+func ScValid(s *[32]byte) bool {
+	s0 := load4(s[:])
+	s1 := load4(s[4:])
+	s2 := load4(s[8:])
+	s3 := load4(s[12:])
+	s4 := load4(s[16:])
+	s5 := load4(s[20:])
+	s6 := load4(s[24:])
+	s7 := load4(s[28:])
+
+	return (signum(1559614444-s0)+(signum(1477600026-s1)<<1)+(signum(2734136534-s2)<<2)+(signum(350157278-s3)<<3)+(signum(-s4)<<4)+(signum(-s5)<<5)+(signum(-s6)<<6)+(signum(268435456-s7)<<7))>>8 == 0
+}
+
+func ScIsZero(s *[32]byte) bool {
+	return ((int(s[0]|s[1]|s[2]|s[3]|s[4]|s[5]|s[6]|s[7]|s[8]|
+		s[9]|s[10]|s[11]|s[12]|s[13]|s[14]|s[15]|s[16]|s[17]|
+		s[18]|s[19]|s[20]|s[21]|s[22]|s[23]|s[24]|s[25]|s[26]|
+		s[27]|s[28]|s[29]|s[30]|s[31])-1)>>8)+1 == 0
 }
 
 // order is the order of Curve25519 in little-endian form.
